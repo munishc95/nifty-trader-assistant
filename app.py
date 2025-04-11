@@ -10,45 +10,60 @@ import os
 
 st.set_page_config(layout="wide")
 
-# Market hours check (before autorefresh)
+# ✅ Initialize demo_mode in session_state
+if "demo_mode" not in st.session_state:
+    st.session_state.demo_mode = False
+
+# ✅ Sidebar toggle for Demo Mode
+st.sidebar.checkbox("🧪 Enable Demo Mode", value=st.session_state.demo_mode, key="demo_mode", help="Simulates market hours and option prices for testing on weekends.")
+
+# ✅ Override current time if Demo Mode is enabled
+if st.session_state.demo_mode:
+    now = pytz.timezone('Asia/Kolkata').localize(datetime.datetime(2025, 4, 10, 10, 0))  # Pick a past weekday
+else:
+    now = datetime.datetime.now(pytz.timezone('Asia/Kolkata'))
+
+
+
 # Market hours check (before autorefresh)
 now = datetime.datetime.now(pytz.timezone('Asia/Kolkata'))
 market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
 market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
 
-if not (market_open <= now <= market_close):
+if not st.session_state.demo_mode and not (market_open <= now <= market_close):
     st.warning("⏸ Market is closed. App will resume at 9:15 AM IST.")
-
+    
     # Show last known price (closing or fallback)
     end_of_day = now.replace(hour=15, minute=30, second=0, microsecond=0)
     start_of_day = now.replace(hour=9, minute=15, second=0, microsecond=0)
     df = yf.download("^NSEI", interval="1m", start=start_of_day, end=end_of_day)
-
     if not df.empty:
         closing_price = df['Close'].iloc[-1]
         st.metric("🔒 Closing Price", f"{float(closing_price):.2f}")
-        st.caption("Note: This price is based on Yahoo Finance intraday data and may differ slightly from official NSE close.")
     else:
         st.info("No intraday data available to show closing price.")
 
-    # ✅ Show daily P&L summary
+    # Show daily P&L summary or fallback
     st.markdown("---")
     st.subheader("📋 Daily Trade Summary")
-    if 'trades' in st.session_state and st.session_state.trades:
+    if 'trades' in st.session_state:
         trades_df = pd.DataFrame(st.session_state.trades)
-        trades_df['Date'] = pd.to_datetime(trades_df['Buy Time']).dt.date
-        today = now.date()
-        today_trades = trades_df[trades_df['Date'] == today]
-        if not today_trades.empty:
-            total_pnl = today_trades['PnL'].sum()
-            st.metric("🔄 Daily P&L", f"₹{total_pnl:,.2f}")
-            st.caption(f"{len(today_trades)} trade(s) placed today.")
+        if not trades_df.empty:
+            trades_df['Date'] = pd.to_datetime(trades_df['Buy Time']).dt.date
+            today = now.date()
+            today_trades = trades_df[trades_df['Date'] == today]
+            if not today_trades.empty:
+                total_pnl = today_trades['PnL'].sum()
+                st.metric("🔄 Daily P&L", f"₹{total_pnl:,.2f}")
+            else:
+                st.info("💬 0 trades were taken today.")
         else:
-            st.info("📭 0 trades were taken today.")
+            st.info("💬 0 trades were taken today.")
     else:
-        st.info("📭 0 trades were taken today.")
+        st.info("💬 0 trades were taken today.")
 
     st.stop()
+
 
 st_autorefresh(interval=1000, limit=None, key="data_refresh")
 
@@ -91,12 +106,33 @@ def apply_strategy(df):
 # Fetch NIFTY price data
 def fetch_data():
     now = datetime.datetime.now(pytz.timezone('Asia/Kolkata'))
-    start = now - datetime.timedelta(minutes=5)
-    df = yf.download("^NSEI", interval="1m", start=start, end=now)
-    return df
+
+    # DEMO MODE: return synthetic price data for testing
+    if st.session_state.demo_mode:
+        st.info("🧪 Demo Mode is enabled. Data shown is simulated for testing purposes.")
+        timestamps = pd.date_range(end=now, periods=5, freq='1min')
+        prices = np.linspace(22800, 22880, num=5)
+        df = pd.DataFrame({
+            'Datetime': timestamps,
+            'Close': prices
+        })
+        df.set_index('Datetime', inplace=True)
+        return df
+
+    # LIVE MODE: try fetching real data
+    try:
+        start = now - datetime.timedelta(minutes=5)
+        df = yf.download("^NSEI", interval="1m", start=start, end=now)
+        return df
+    except Exception as e:
+        st.error(f"Live data fetch error: {e}")
+        return pd.DataFrame()
+
 
 # Fetch NSE option chain data (only on signal)
 def fetch_option_price(strike, call_or_put):
+    if st.session_state.demo_mode:
+        return 250 if call_or_put == "CE" else 180  # Dummy prices
     url = "https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY"
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -106,7 +142,6 @@ def fetch_option_price(strike, call_or_put):
     session.get("https://www.nseindia.com", headers=headers)
     response = session.get(url, headers=headers)
     data = response.json()
-
     for item in data['records']['data']:
         if item['strikePrice'] == strike:
             if call_or_put == "CE" and 'CE' in item:
