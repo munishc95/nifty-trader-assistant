@@ -7,6 +7,8 @@ import datetime
 import pytz
 import requests
 
+import os
+
 st.set_page_config(layout="wide")
 st_autorefresh(interval=1000, limit=None, key="data_refresh")
 
@@ -21,8 +23,8 @@ if 'capital' not in st.session_state:
     st.session_state.option_data = None
 
 # Telegram Alert
-TELEGRAM_TOKEN = "7797451537:AAEZB32EOP78gdI7GVkux_AXGHDCvBFCIoQ"
-TELEGRAM_CHAT_ID = "1772124344"  # Replace with actual chat ID after running getUpdates
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def send_telegram_alert(message):
     try:
