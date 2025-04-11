@@ -6,10 +6,67 @@ import numpy as np
 import datetime
 import pytz
 import requests
-
 import os
 
 st.set_page_config(layout="wide")
+
+# Market hours check (before autorefresh)
+now = datetime.datetime.now(pytz.timezone('Asia/Kolkata'))
+market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+
+if not (market_open <= now <= market_close):
+    st.warning("⏸ Market is closed. App will resume at 9:15 AM IST.")
+
+    # Show last known price (closing or fallback)
+    end_of_day = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    start_of_day = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    df = yf.download("^NSEI", interval="1m", start=start_of_day, end=end_of_day)
+    if not df.empty:
+        closing_price = df['Close'].iloc[-1]
+        st.metric("🔒 Closing Price", f"{float(closing_price):.2f}")
+    else:
+        st.info("No intraday data available to show closing price.")
+
+    # Show daily P&L summary or fallback
+    if 'trades' in st.session_state and st.session_state.trades:
+        st.markdown("---")
+        st.subheader("📋 Daily Trade Summary")
+
+        try:
+            trades_df = pd.DataFrame(st.session_state.trades)
+
+            if "Buy Time" in trades_df.columns:
+                # Convert and extract date
+                trades_df['Buy Time'] = pd.to_datetime(trades_df['Buy Time'], errors='coerce')
+                trades_df['Date'] = trades_df['Buy Time'].dt.date
+                today = datetime.datetime.now(pytz.timezone('Asia/Kolkata')).date()
+                today_trades = trades_df[trades_df['Date'] == today]
+
+                if not today_trades.empty:
+                    total_pnl = today_trades['PnL'].sum()
+                    total_trades = len(today_trades)
+                    win_trades = len(today_trades[today_trades['PnL'] > 0])
+                    loss_trades = total_trades - win_trades
+                    win_rate = (win_trades / total_trades) * 100 if total_trades > 0 else 0
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("🧾 Total Trades", total_trades)
+                    col2.metric("✅ Winning Trades", win_trades)
+                    col3.metric("❌ Losing Trades", loss_trades)
+                    col4.metric("📊 Win Rate", f"{win_rate:.1f}%")
+                    st.metric("💰 Daily P&L", f"₹{total_pnl:,.2f}")
+                else:
+                    st.info("📅 No trades found for today.")
+            else:
+                st.warning("⚠️ 'Buy Time' column missing in trades.")
+        except Exception as e:
+            st.error(f"Summary error: {e}")
+    else:
+        st.info("📭 No trades recorded yet.")
+
+    st.stop()
+
 st_autorefresh(interval=1000, limit=None, key="data_refresh")
 
 st.title("🔴 NIFTY Live Paper Trading - Intraday Strategy")
