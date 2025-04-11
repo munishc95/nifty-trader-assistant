@@ -10,12 +10,18 @@ import os
 
 st.set_page_config(layout="wide")
 
-# ✅ Initialize demo_mode in session_state
+# ✅ Initialize session state defaults
 if "demo_mode" not in st.session_state:
     st.session_state.demo_mode = False
 
-# ✅ Sidebar toggle for Demo Mode
-st.sidebar.checkbox("🧪 Enable Demo Mode", value=st.session_state.demo_mode, key="demo_mode", help="Simulates market hours and option prices for testing on weekends.")
+# ✅ Sidebar toggle for Demo Mode (safe for Streamlit Cloud)
+demo_toggle = st.sidebar.checkbox(
+    "🧪 Enable Demo Mode", 
+    value=st.session_state.demo_mode, 
+    key="demo_mode_checkbox", 
+    help="Simulates market hours and option prices for testing on weekends."
+)
+st.session_state.demo_mode = demo_toggle
 
 # ✅ Override current time if Demo Mode is enabled
 if st.session_state.demo_mode:
