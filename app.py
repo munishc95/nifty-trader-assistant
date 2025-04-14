@@ -113,11 +113,17 @@ def apply_strategy(df):
 def fetch_data():
     now = datetime.datetime.now(pytz.timezone('Asia/Kolkata'))
 
-    # DEMO MODE: return synthetic price data for testing
+    # DEMO MODE: return synthetic price data that changes on every refresh
     if st.session_state.demo_mode:
         st.info("🧪 Demo Mode is enabled. Data shown is simulated for testing purposes.")
+
+        # Generate pseudo-random closing prices
+        np.random.seed(int(now.strftime("%H%M%S")))  # ensure variability on each second
+        base_price = 22800
+        noise = np.random.normal(loc=0, scale=10, size=5).cumsum()
+        prices = base_price + noise
+
         timestamps = pd.date_range(end=now, periods=5, freq='1min')
-        prices = np.linspace(22800, 22880, num=5)
         df = pd.DataFrame({
             'Datetime': timestamps,
             'Close': prices
@@ -125,14 +131,6 @@ def fetch_data():
         df.set_index('Datetime', inplace=True)
         return df
 
-    # LIVE MODE: try fetching real data
-    try:
-        start = now - datetime.timedelta(minutes=5)
-        df = yf.download("^NSEI", interval="1m", start=start, end=now)
-        return df
-    except Exception as e:
-        st.error(f"Live data fetch error: {e}")
-        return pd.DataFrame()
 
 
 # Fetch NSE option chain data (only on signal)
