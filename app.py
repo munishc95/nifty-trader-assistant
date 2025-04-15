@@ -69,18 +69,29 @@ def send_telegram_alert(message):
         st.error(f"Telegram alert failed: {e}")
 
 def apply_strategy(df):
-    df['EMA_5'] = df['Close'].ewm(span=5).mean()
-    df['EMA_20'] = df['Close'].ewm(span=20).mean()
+    df['EMA_5'] = df['Close'].ewm(span=5, adjust=False).mean()
+    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+
+    # RSI Calculation
     delta = df['Close'].diff()
     gain = delta.clip(lower=0).rolling(window=14).mean()
     loss = -delta.clip(upper=0).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
-    df['ATR'] = df['Close'].rolling(window=14).std()
+
+    # ATR Calculation (14-period)
+    df['H-L'] = df['High'] - df['Low']
+    df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
+    df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
+    df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
+    df['ATR'] = df['TR'].rolling(window=14).mean()
+
+    # Signal Logic
     df['Signal'] = 0
     df.loc[(df['EMA_5'] > df['EMA_20']) & (df['RSI'] > 50), 'Signal'] = 1
     df.loc[(df['EMA_5'] < df['EMA_20']) & (df['RSI'] < 50), 'Signal'] = -1
     return df
+
 
 def fetch_data():
     if st.session_state.demo_mode:
@@ -143,7 +154,9 @@ df = apply_strategy(df)
 latest = df.iloc[-1]
 signal = int(latest['Signal'])
 ltp = float(latest['Close'])
-atr = float(latest['ATR']) if not np.isnan(latest['ATR']) else 10.0
+atr = latest['ATR']
+if pd.isna(atr) or not np.isfinite(atr):
+    atr = 10.0  # fallback
 tp_points = max(atr * 1.5, 10)
 sl_points = max(atr * 0.5, 3)
 
