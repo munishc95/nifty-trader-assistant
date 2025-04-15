@@ -144,26 +144,43 @@ def fetch_data():
         return pd.DataFrame()
 
 
-
-# Fetch NSE option chain data (only on signal)
-def fetch_option_price(strike, call_or_put):
-    if st.session_state.demo_mode:
-        return 250 if call_or_put == "CE" else 180  # Dummy prices
+# Cache NSE Option Chain for 2 minutes
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_nse_option_chain():
     url = "https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY"
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Accept-Language": "en-US,en;q=0.9"
     }
+
     session = requests.Session()
-    session.get("https://www.nseindia.com", headers=headers)
-    response = session.get(url, headers=headers)
-    data = response.json()
+    try:
+        session.get("https://www.nseindia.com", headers=headers, timeout=5)
+        response = session.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.warning(f"⚠️ NSE API failed with status {response.status_code}")
+    except Exception as e:
+        st.warning(f"⚠️ NSE API error: {e}")
+    return None
+
+def fetch_option_price(strike, call_or_put):
+    if st.session_state.demo_mode:
+        return 250 if call_or_put == "CE" else 180  # Dummy prices
+
+    data = fetch_nse_option_chain()
+    if data is None:
+        st.warning("⚠️ Could not load NSE Option Chain data.")
+        return None
+
     for item in data['records']['data']:
         if item['strikePrice'] == strike:
             if call_or_put == "CE" and 'CE' in item:
                 return item['CE']['lastPrice']
             elif call_or_put == "PE" and 'PE' in item:
                 return item['PE']['lastPrice']
+
     return None
 
 # Option suggestion
