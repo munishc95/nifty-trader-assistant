@@ -117,19 +117,31 @@ def fetch_data():
     if st.session_state.demo_mode:
         st.info("🧪 Demo Mode is enabled. Data shown is simulated for testing purposes.")
 
-        # Generate pseudo-random closing prices
-        np.random.seed(int(now.strftime("%H%M%S")))  # ensure variability on each second
-        base_price = 22800
-        noise = np.random.normal(loc=0, scale=10, size=5).cumsum()
-        prices = base_price + noise
+        try:
+            np.random.seed(int(now.strftime("%H%M%S")))  # changes every second
+            base_price = 22800
+            noise = np.random.normal(loc=0, scale=10, size=5).cumsum()
+            prices = base_price + noise
 
-        timestamps = pd.date_range(end=now, periods=5, freq='1min')
-        df = pd.DataFrame({
-            'Datetime': timestamps,
-            'Close': prices
-        })
-        df.set_index('Datetime', inplace=True)
-        return df
+            timestamps = pd.date_range(end=now, periods=5, freq='1min')
+            df = pd.DataFrame({
+                'Datetime': timestamps,
+                'Close': prices
+            })
+            df.set_index('Datetime', inplace=True)
+            return df
+        except Exception as e:
+            st.error(f"Demo data generation error: {e}")
+            return pd.DataFrame()
+
+    # LIVE MODE: fetch real NIFTY data
+    try:
+        start = now - datetime.timedelta(minutes=5)
+        df = yf.download("^NSEI", interval="1m", start=start, end=now)
+        return df if df is not None else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Live data fetch error: {e}")
+        return pd.DataFrame()
 
 
 
