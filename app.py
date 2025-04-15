@@ -171,13 +171,16 @@ st.metric("Capital", f"₹{st.session_state.capital:,.2f}")
 name, strike, cp = get_option_recommendation(ltp, signal)
 st.markdown(f"### 📌 Option Suggestion: `{name}`")
 
-if (signal in [1, -1]) and not st.session_state.hold:
-    # Predict the option price before entering the trade
-    option_price = fetch_option_price(strike, cp)
-    if option_price:
-        predicted_target = option_price + 10
-        predicted_sl = option_price - 3
-        st.markdown(f"💰 **Entry Price:** ₹{option_price:.2f} &nbsp;&nbsp; 🎯 **Target:** ₹{predicted_target:.2f} &nbsp;&nbsp; 🛑 **Stop Loss:** ₹{predicted_sl:.2f}")
+if st.session_state.get("last_trade_price_details"):
+    entry = st.session_state["last_trade_price_details"]["entry"]
+    target = st.session_state["last_trade_price_details"]["target"]
+    sl = st.session_state["last_trade_price_details"]["sl"]
+    
+    st.markdown(f"💰 **Entry Price:** ₹{entry:.2f} 🎯 **Target:** ₹{target:.2f} 🔴 **Stop Loss:** ₹{sl:.2f}")
+    
+if st.session_state.get("last_trade_message"):
+    st.success(st.session_state["last_trade_message"])
+
 
 LOT_SIZE = 50
 
@@ -198,9 +201,15 @@ if signal in [1, -1] and not st.session_state.hold:
             "Option": name,
             "Lots": lots
         }
-        msg = f"🔼 BUY {name} @ ₹{entry_price:.2f}\n🎯 Target: ₹{tp:.2f} | 🛑 SL: ₹{sl:.2f} | 📦 {lots} lot(s)"
+        msg = f"🔼 BUY {name} @ ₹{entry_price:.2f} 🎯 Target: ₹{tp:.2f} 🔴 SL: ₹{sl:.2f} 📦 {lots} lot(s)"
         send_telegram_alert(msg)
-        st.success(msg)
+        st.session_state.last_trade_message = msg
+        st.session_state.last_trade_price_details = {
+            "entry": entry_price,
+            "target": tp,
+            "sl": sl
+        }
+
 
 elif st.session_state.hold:
     price = fetch_option_price(strike, cp)
@@ -231,6 +240,9 @@ elif st.session_state.hold:
             msg = f"{reason} | Exit ₹{current_price:.2f} | P&L ₹{pnl:.2f}"
             send_telegram_alert(msg)
             st.success(msg)
+            st.session_state.last_trade_message = ""
+            st.session_state.last_trade_price_details = None
+
 
 if st.session_state.trades:
     st.subheader("📋 Trade Log")
