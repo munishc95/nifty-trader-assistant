@@ -136,7 +136,7 @@ def fetch_data():
 
     # LIVE MODE: fetch real NIFTY data
     try:
-        start = now - datetime.timedelta(minutes=5)
+        start = now - datetime.timedelta(minutes=20)
         df = yf.download("^NSEI", interval="1m", start=start, end=now)
         return df if df is not None else pd.DataFrame()
     except Exception as e:
