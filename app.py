@@ -155,8 +155,12 @@ latest = df.iloc[-1]
 signal = int(latest['Signal'])
 ltp = float(latest['Close'])
 atr = latest['ATR']
+if isinstance(atr, pd.Series):
+    atr = atr.iloc[0]
+
 if pd.isna(atr) or not np.isfinite(atr):
-    atr = 10.0  # fallback
+    atr = 10.0
+
 tp_points = max(atr * 1.5, 10)
 sl_points = max(atr * 0.5, 3)
 
