@@ -76,7 +76,7 @@ st_autorefresh(interval=1000, limit=None, key="data_refresh")
 st.title("🔴 NIFTY Live Paper Trading - Intraday Strategy")
 
 if 'capital' not in st.session_state:
-    st.session_state.capital = 10000
+    st.session_state.capital = 100000
     st.session_state.hold = False
     st.session_state.entry_price = 0.0
     st.session_state.position = None
