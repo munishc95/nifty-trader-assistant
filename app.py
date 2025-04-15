@@ -204,37 +204,46 @@ else:
     elif st.session_state.hold:
         try:
             option_price = fetch_option_price(strike, cp)
-            if option_price is not None:
+
+            if option_price is None:
+                st.warning("⚠️ Option price not available. Skipping exit check.")
+            else:
+                current_price = option_price
                 entry_price = st.session_state.entry_price
                 pnl = 0
                 exit = False
 
-                if option_price <= st.session_state.position['SL']:
-                    pnl = (option_price - entry_price) * LOT_SIZE * st.session_state.position['Lots']
-                    exit = True
-                    reason = "🛑 STOP LOSS"
-                elif option_price >= st.session_state.position['TP']:
-                    pnl = (option_price - entry_price) * LOT_SIZE * st.session_state.position['Lots']
-                    exit = True
-                    reason = "✅ TARGET HIT"
+                # ✅ Add sanity check to ignore unrealistic drops
+                max_deviation = 20  # prevent SL trigger on fake price spikes
+                if abs(current_price - entry_price) > max_deviation:
+                    st.warning(f"⚠️ Ignoring suspicious price deviation: ₹{current_price:.2f} vs Entry ₹{entry_price:.2f}")
+                else:
+                    if current_price <= st.session_state.position['SL']:
+                        pnl = (current_price - entry_price) * LOT_SIZE * st.session_state.position['Lots']
+                        exit = True
+                        reason = "🛑 STOP LOSS"
+                    elif current_price >= st.session_state.position['TP']:
+                        pnl = (current_price - entry_price) * LOT_SIZE * st.session_state.position['Lots']
+                        exit = True
+                        reason = "✅ TARGET HIT"
 
-                if exit:
-                    st.session_state.capital += pnl
-                    trade = {
-                        **st.session_state.position,
-                        "Sell Time": latest.name.tz_convert('Asia/Kolkata'),
-                        "Sell Price": option_price,
-                        "PnL": pnl,
-                        "Capital": st.session_state.capital,
-                        "Reason": reason
-                    }
-                    st.session_state.trades.append(trade)
-                    st.session_state.hold = False
-                    st.session_state.position = None
+                    if exit:
+                        st.session_state.capital += pnl
+                        trade = {
+                            **st.session_state.position,
+                            "Sell Time": latest.name.tz_convert('Asia/Kolkata'),
+                            "Sell Price": current_price,
+                            "PnL": pnl,
+                            "Capital": st.session_state.capital,
+                            "Reason": reason
+                        }
+                        st.session_state.trades.append(trade)
+                        st.session_state.hold = False
+                        st.session_state.position = None
 
-                    msg = f"{reason} | Exit ₹{option_price:.2f} | P&L ₹{pnl:.2f}"
-                    send_telegram_alert(msg)
-                    st.success(msg)
+                        msg = f"{reason} | Exit ₹{current_price:.2f} | P&L ₹{pnl:.2f}"
+                        send_telegram_alert(msg)
+                        st.success(msg)
         except Exception as e:
             st.error(f"Option fetch error: {e}")
 
