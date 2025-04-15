@@ -171,6 +171,14 @@ st.metric("Capital", f"₹{st.session_state.capital:,.2f}")
 name, strike, cp = get_option_recommendation(ltp, signal)
 st.markdown(f"### 📌 Option Suggestion: `{name}`")
 
+if (signal in [1, -1]) and not st.session_state.hold:
+    # Predict the option price before entering the trade
+    option_price = fetch_option_price(strike, cp)
+    if option_price:
+        predicted_target = option_price + 10
+        predicted_sl = option_price - 3
+        st.markdown(f"💰 **Entry Price:** ₹{option_price:.2f} &nbsp;&nbsp; 🎯 **Target:** ₹{predicted_target:.2f} &nbsp;&nbsp; 🛑 **Stop Loss:** ₹{predicted_sl:.2f}")
+
 LOT_SIZE = 50
 
 if signal in [1, -1] and not st.session_state.hold:
