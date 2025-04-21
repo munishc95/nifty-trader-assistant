@@ -16,6 +16,16 @@ load_dotenv()
 # Define timezone early so it's available everywhere
 ist_tz = pytz.timezone('Asia/Kolkata')
 
+# Force session state refresh if needed
+if 'app_version' not in st.session_state or st.session_state.app_version != '1.1':
+    # Clear any previous session state objects that might have changed
+    for key in list(st.session_state.keys()):
+        if key not in ['demo_mode', 'capital', 'trades', 'hold', 'entry_price', 'position']:
+            del st.session_state[key]
+    
+    # Set new version
+    st.session_state.app_version = '1.1'
+
 # Set page configuration
 st.set_page_config(layout="wide", page_title="NIFTY Trader Assistant")
 
@@ -97,6 +107,19 @@ with st.sidebar:
         
         # Show the countdown
         st.caption(f"Next candle in ~{refresh_seconds} seconds")
+    
+    # Add a section for advanced settings
+    with st.expander("Advanced Settings"):
+        if st.button("Reset Upstox Connection"):
+            # Remove the Upstox manager from session state
+            if 'upstox_manager' in st.session_state:
+                # First stop streaming if running
+                if hasattr(st.session_state.upstox_manager, 'stop_streaming'):
+                    st.session_state.upstox_manager.stop_streaming()
+                # Then remove from session state    
+                del st.session_state.upstox_manager
+            st.success("Connection reset! Refreshing...")
+            st.experimental_rerun()
 
 # Time and market hours
 if st.session_state.demo_mode:
@@ -158,10 +181,17 @@ st.title("🔴 NIFTY Live Trading Assistant")
 # Add this after your title
 col1, col2, col3 = st.columns(3)
 with col1:
-    if st.session_state.upstox_manager and st.session_state.upstox_manager.running:
-        st.success("✅ Upstox Connected")
+    if st.session_state.upstox_manager:
+        if hasattr(st.session_state.upstox_manager, 'fallback_mode') and st.session_state.upstox_manager.fallback_mode:
+            st.warning("🔄 Using Simulated Data")
+        elif hasattr(st.session_state.upstox_manager, 'connection_failed') and st.session_state.upstox_manager.connection_failed:
+            st.error("❌ Upstox Connection Failed")
+        elif hasattr(st.session_state.upstox_manager, 'running') and st.session_state.upstox_manager.running:
+            st.success("✅ Upstox Connected")
+        else:
+            st.error("❌ Upstox Disconnected")
     else:
-        st.error("❌ Upstox Disconnected")
+        st.error("❌ Upstox Not Initialized")
         
 with col2:
     st.info(f"Market status: {'🟢 Open' if is_market_open else '🔴 Closed'}")

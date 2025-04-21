@@ -17,23 +17,22 @@ class UpstoxDataManager:
     def __init__(self):
         self.access_token = os.getenv("UPSTOX_ACCESS_TOKEN")
         if not self.access_token:
-            raise ValueError("UPSTOX_ACCESS_TOKEN environment variable not set")
-        
-        # Validate token format
-        if len(self.access_token) < 20:  # Tokens are typically long
-            logger.warning(f"Access token seems unusually short ({len(self.access_token)} chars)")
-        
-        # Configure client
-        try:
-            self.configuration = upstox_client.Configuration()
-            self.configuration.access_token = self.access_token
-            self.api_client = upstox_client.ApiClient(self.configuration)
+            logger.warning("UPSTOX_ACCESS_TOKEN environment variable not set. Using fallback mode.")
+            self.fallback_mode = True
+        else:
+            self.fallback_mode = False
             
-            # Test API connection here if needed
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize Upstox client: {e}")
-            raise
+        # Configure client if not in fallback mode
+        if not self.fallback_mode:
+            try:
+                self.configuration = upstox_client.Configuration()
+                self.configuration.access_token = self.access_token
+                self.api_client = upstox_client.ApiClient(self.configuration)
+                
+            except Exception as e:
+                logger.error(f"Failed to initialize Upstox client: {e}")
+                logger.warning("Falling back to simulation mode")
+                self.fallback_mode = True
         
         # Data storage
         self.current_data = {}
@@ -42,6 +41,9 @@ class UpstoxDataManager:
         self.running = False
         self.stream_thread = None
         self.streamer = None
+        self.connection_failed = False
+        self.max_reconnect_attempts = 3
+        self.reconnect_attempts = 0
         
         # For storing candles temporarily (will build dataframes from this)
         self._candle_data = {
@@ -49,14 +51,20 @@ class UpstoxDataManager:
             "Nifty Bank": []
         }
         
-        logger.info("UpstoxDataManager initialized")
+        logger.info(f"UpstoxDataManager initialized in {'fallback' if self.fallback_mode else 'live'} mode")
     
     def start_streaming(self):
         """Start the data streaming in a background thread"""
         if self.running:
             return
-        
+            
         self.running = True
+        
+        # Don't attempt streaming if in fallback mode
+        if self.fallback_mode:
+            logger.info("Skipping streaming in fallback mode")
+            return
+            
         self.stream_thread = threading.Thread(target=self._stream_data)
         self.stream_thread.daemon = True
         self.stream_thread.start()
@@ -81,6 +89,12 @@ class UpstoxDataManager:
     def _stream_data(self):
         """Background thread to stream market data"""
         try:
+            # Check if we should try to connect
+            if self.fallback_mode or self.reconnect_attempts >= self.max_reconnect_attempts:
+                logger.warning("Not connecting to WebSocket: using fallback mode")
+                self.connection_failed = True
+                return
+                
             # Create instrument keys
             instrument_keys = ["NSE_INDEX|Nifty 50", "NSE_INDEX|Nifty Bank"]
             
@@ -107,6 +121,17 @@ class UpstoxDataManager:
         except Exception as e:
             logger.error(f"Streaming error: {e}")
             self.running = False
+            self.connection_failed = True
+            
+            # Try to reconnect unless we've hit the limit
+            self.reconnect_attempts += 1
+            if self.reconnect_attempts < self.max_reconnect_attempts:
+                logger.info(f"Reconnection attempt {self.reconnect_attempts} of {self.max_reconnect_attempts}")
+                time.sleep(5)  # Wait before reconnecting
+                self._stream_data()  # Try again
+            else:
+                logger.error(f"Maximum reconnection attempts ({self.max_reconnect_attempts}) reached. Switching to fallback mode.")
+                self.fallback_mode = True
     
     def _on_message(self, message):
         """Handle incoming market data"""
@@ -177,20 +202,53 @@ class UpstoxDataManager:
     def _on_error(self, error):
         """Handle streaming errors"""
         logger.error(f"WebSocket error: {error}")
+        
+        # Check for specific errors that indicate we should use fallback mode
+        error_str = str(error)
+        if "403 Forbidden" in error_str:
+            logger.warning("403 Forbidden error received. API access denied.")
+            self.fallback_mode = True
+            self.connection_failed = True
     
     def _on_close(self, status_code=None, reason=None):
         """Handle stream closure"""
         logger.warning(f"WebSocket closed. Status: {status_code}, Reason: {reason}")
         self.running = False
+        
+        # If closed with an error status code, mark connection as failed
+        if status_code and status_code >= 400:
+            self.connection_failed = True
     
     def get_latest_price(self, instrument="Nifty 50"):
         """Get the latest price for an instrument"""
+        if self.fallback_mode or self.connection_failed:
+            return self._get_simulated_price(instrument)
+            
         if instrument in self.current_data:
             return self.current_data[instrument]
-        return None
+            
+        # Fall back to simulation if no data available
+        return self._get_simulated_price(instrument)
+    
+    def _get_simulated_price(self, instrument):
+        """Generate simulated price data"""
+        base_price = 22800 if instrument == "Nifty 50" else 45000
+        return {
+            "ltp": base_price + np.random.normal(0, 10),
+            "volume": np.random.randint(10000, 50000),
+            "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')),
+            "open": base_price + np.random.normal(0, 5),
+            "high": base_price + np.random.normal(10, 5),
+            "low": base_price + np.random.normal(-10, 5),
+            "close": base_price + np.random.normal(0, 5)
+        }
     
     def get_historical_data(self, instrument="Nifty 50", interval="1minute", days=1):
         """Fetch historical OHLC data"""
+        # Use simulated data in fallback mode or if connection failed
+        if self.fallback_mode or self.connection_failed:
+            return self._get_simulated_historical_data(instrument, interval, days)
+        
         # First check if we have data in our candle storage
         if instrument in self._candle_data and self._candle_data[instrument]:
             try:
@@ -206,8 +264,11 @@ class UpstoxDataManager:
             except Exception as e:
                 logger.error(f"Error creating DataFrame: {e}")
         
-        # If we have no data, generate some simulated data for demo purposes
-        # This will be useful until we implement the historical API properly
+        # If we have no data, generate simulated data
+        return self._get_simulated_historical_data(instrument, interval, days)
+    
+    def _get_simulated_historical_data(self, instrument, interval, days):
+        """Generate simulated historical data"""
         try:
             # Generate some simulated data
             ist = pytz.timezone('Asia/Kolkata')
