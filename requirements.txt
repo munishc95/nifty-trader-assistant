@@ -3,5 +3,6 @@ streamlit-autorefresh
 pandas
 numpy
 requests
-yfinance
 matplotlib
+upstox-python-sdk
+python-dotenv
