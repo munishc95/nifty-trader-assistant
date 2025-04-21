@@ -13,6 +13,9 @@ from upstox_manager import UpstoxDataManager
 # Load environment variables
 load_dotenv()
 
+# Define timezone early so it's available everywhere
+ist_tz = pytz.timezone('Asia/Kolkata')
+
 # Set page configuration
 st.set_page_config(layout="wide", page_title="NIFTY Trader Assistant")
 
@@ -96,7 +99,6 @@ with st.sidebar:
         st.caption(f"Next candle in ~{refresh_seconds} seconds")
 
 # Time and market hours
-ist_tz = pytz.timezone('Asia/Kolkata')
 if st.session_state.demo_mode:
     # Use a dynamic time that advances with each refresh
     if "demo_time" not in st.session_state:
