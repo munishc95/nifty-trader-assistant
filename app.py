@@ -65,10 +65,54 @@ with st.sidebar:
     st.subheader("Autotrading")
     auto_trade = st.checkbox("Enable Auto Trading", value=False)
 
+    if st.session_state.demo_mode:
+        if st.button("🔄 Reset Demo Data"):
+            # Reset demo data
+            if "demo_price_history" in st.session_state:
+                del st.session_state.demo_price_history
+            if "demo_last_price" in st.session_state:
+                del st.session_state.demo_last_price
+            if "demo_momentum" in st.session_state:
+                del st.session_state.demo_momentum
+            if "demo_time" in st.session_state:
+                st.session_state.demo_time = ist_tz.localize(datetime.datetime(2025, 4, 21, 10, 0))
+            st.success("Demo data reset!")
+
+        st.subheader("Demo Settings")
+        demo_speed = st.select_slider(
+            "Simulation Speed",
+            options=["Slow", "Normal", "Fast"],
+            value="Normal"
+        )
+        
+        # Set the auto-refresh interval based on speed
+        refresh_seconds = {
+            "Slow": 15, 
+            "Normal": 7,
+            "Fast": 3
+        }.get(demo_speed, 7)
+        
+        # Show the countdown
+        st.caption(f"Next candle in ~{refresh_seconds} seconds")
+
 # Time and market hours
 ist_tz = pytz.timezone('Asia/Kolkata')
 if st.session_state.demo_mode:
-    now = ist_tz.localize(datetime.datetime(2025, 4, 21, 10, 0))
+    # Use a dynamic time that advances with each refresh
+    if "demo_time" not in st.session_state:
+        # Initialize to 10:00 AM on the demo date
+        st.session_state.demo_time = ist_tz.localize(datetime.datetime(2025, 4, 21, 10, 0))
+    else:
+        # Advance time by 1-3 minutes with each refresh
+        advance_minutes = np.random.randint(1, 4)
+        st.session_state.demo_time += datetime.timedelta(minutes=advance_minutes)
+        
+        # Ensure we don't go beyond market closing
+        market_close_time = ist_tz.localize(datetime.datetime(2025, 4, 21, 15, 30))
+        if st.session_state.demo_time > market_close_time:
+            st.session_state.demo_time = ist_tz.localize(datetime.datetime(2025, 4, 21, 10, 0))
+    
+    now = st.session_state.demo_time
 else:
     now = datetime.datetime.now(ist_tz)
 
@@ -96,7 +140,15 @@ if not st.session_state.demo_mode and not is_market_open:
         st.stop()
 
 # Main app - enable auto-refresh for real-time updates
-st_autorefresh(interval=5000, limit=None, key="data_refresh")
+if st.session_state.demo_mode:
+    refresh_seconds = {
+        "Slow": 15000, 
+        "Normal": 7000,
+        "Fast": 3000
+    }.get(st.session_state.get("demo_speed", "Normal"), 7000)
+    st_autorefresh(interval=refresh_seconds, limit=None, key="data_refresh")
+else:
+    st_autorefresh(interval=5000, limit=None, key="data_refresh")
 
 # App title and header
 st.title("🔴 NIFTY Live Trading Assistant")
@@ -171,24 +223,95 @@ def apply_strategy(df, ema_short=5, ema_long=20, rsi_period=14, rsi_threshold=50
 def fetch_data():
     """Fetch market data from Upstox or use simulated data in demo mode"""
     if st.session_state.demo_mode:
-        # Generate simulated data
-        np.random.seed(int(now.strftime("%H%M%S")))
-        prices = 22800 + np.cumsum(np.random.normal(0, 5, 30))
-        highs = prices + np.random.uniform(5, 20, 30)
-        lows = prices - np.random.uniform(5, 20, 30)
-        opens = prices - np.random.uniform(-10, 10, 30)
-        volumes = np.random.randint(10000, 50000, 30)
+        # Initialize price history in session state if not present
+        if "demo_price_history" not in st.session_state:
+            # Starting price around 22800
+            last_price = 22800
+            # Create initial price history
+            price_history = []
+            
+            # Create a simulated price series with some trend
+            for i in range(30):
+                # Add some randomness and slight trend
+                random_change = np.random.normal(0, 8)
+                trend = 0.2 * i if i < 15 else -0.2 * (i - 15)  # Up then down trend
+                last_price += random_change + trend
+                
+                # Generate OHLC from the last price
+                open_price = last_price - np.random.uniform(-5, 5)
+                high_price = max(open_price, last_price) + np.random.uniform(2, 15)
+                low_price = min(open_price, last_price) - np.random.uniform(2, 15)
+                
+                price_history.append({
+                    'Open': open_price,
+                    'High': high_price,
+                    'Low': low_price,
+                    'Close': last_price,
+                    'Volume': np.random.randint(10000, 50000)
+                })
+                
+            st.session_state.demo_price_history = price_history
+            st.session_state.demo_last_price = last_price
+            # Initialize this now to prevent NoneType errors later
+            st.session_state.demo_prev_nifty = last_price
+            st.session_state.demo_momentum = 0
         
-        # Create DataFrame with simulated data
-        df = pd.DataFrame({
-            'Datetime': pd.date_range(end=now, periods=30, freq='1min'),
-            'Open': opens,
-            'High': highs,
-            'Low': lows,
-            'Close': prices,
-            'Volume': volumes
-        })
+        # On subsequent refreshes, evolve the price
+        else:
+            # Get the last price
+            last_price = st.session_state.demo_last_price
+            
+            # Generate new candles based on the last price
+            # More realistic market movement with momentum
+            momentum = st.session_state.get("demo_momentum", 0)
+            
+            # Update momentum (mean-reverting with some randomness)
+            momentum = momentum * 0.8 + np.random.normal(0, 1.5)
+            st.session_state.demo_momentum = momentum
+            
+            # Calculate price change based on momentum and volatility
+            price_change = momentum + np.random.normal(0, 8)
+            
+            # Add market regime changes occasionally
+            if np.random.random() < 0.1:  # 10% chance of regime change
+                # This creates occasional trend shifts
+                st.session_state.demo_momentum = np.random.normal(0, 3)
+            
+            # Update price with the change
+            new_price = last_price + price_change
+            
+            # Generate OHLC from the new price
+            open_price = last_price
+            high_price = max(open_price, new_price) + np.random.uniform(2, 10)
+            low_price = min(open_price, new_price) - np.random.uniform(2, 10)
+            
+            # Create new candle
+            new_candle = {
+                'Open': open_price,
+                'High': high_price,
+                'Low': low_price,
+                'Close': new_price,
+                'Volume': np.random.randint(10000, 50000)
+            }
+            
+            # Add to history and remove oldest
+            st.session_state.demo_price_history.append(new_candle)
+            if len(st.session_state.demo_price_history) > 30:
+                st.session_state.demo_price_history.pop(0)
+            
+            # Update last price
+            st.session_state.demo_last_price = new_price
+        
+        # Create time index for the demo data
+        end_time = now
+        start_time = end_time - datetime.timedelta(minutes=29)
+        time_index = pd.date_range(start=start_time, end=end_time, periods=30)
+        
+        # Convert price history to DataFrame
+        df = pd.DataFrame(st.session_state.demo_price_history)
+        df['Datetime'] = time_index
         df.set_index('Datetime', inplace=True)
+        
         return df
     else:
         # Use Upstox data manager
@@ -225,12 +348,48 @@ def get_option_recommendation(ltp, signal):
 def fetch_option_price(strike, call_or_put):
     """Get option prices from Upstox or generate demo prices"""
     if st.session_state.demo_mode:
-        # Generate random demo price
-        base_price = 200
+        # Get the last nifty price - add default if None
+        last_nifty = getattr(st.session_state, 'demo_last_price', 22800)
+        
+        # Calculate a more realistic option price based on strike and current price
+        price_diff = abs(last_nifty - strike)
+        
         if call_or_put == "CE":
-            return base_price + np.random.randint(-10, 10)
-        else:
-            return base_price + np.random.randint(-8, 12)
+            # For call options: higher when nifty > strike
+            if last_nifty > strike:
+                option_price = max(last_nifty - strike + 50, 5)  # intrinsic + time value
+            else:
+                option_price = max(200 - price_diff/10, 5)  # out of the money, less value
+                
+        else:  # Put option
+            # For put options: higher when nifty < strike
+            if last_nifty < strike:
+                option_price = max(strike - last_nifty + 50, 5)  # intrinsic + time value
+            else:
+                option_price = max(200 - price_diff/10, 5)  # out of the money, less value
+                
+        # Add some randomness
+        option_price += np.random.normal(0, 5)
+        
+        # Store in session state for tracking
+        option_key = f"{strike}_{call_or_put}"
+        if "demo_option_prices" not in st.session_state:
+            st.session_state.demo_option_prices = {}
+            
+        # Add a small random change if the option already exists
+        if option_key in st.session_state.demo_option_prices:
+            old_price = st.session_state.demo_option_prices[option_key]
+            # Price moves with some correlation to index + randomness
+            prev_nifty = st.session_state.get("demo_prev_nifty", last_nifty)  # Default to last_nifty if None
+            price_change = (last_nifty - prev_nifty) * 0.3
+            price_change += np.random.normal(0, 3)
+            option_price = max(old_price + price_change, 1)  # Ensure price is positive
+        
+        # Store the current values for next calculation
+        st.session_state.demo_option_prices[option_key] = option_price
+        st.session_state.demo_prev_nifty = last_nifty
+        
+        return option_price
     
     # TODO: Implement real option price fetching from Upstox
     # For now, return simulated prices since this requires additional setup
@@ -375,18 +534,28 @@ try:
             
             # Calculate P&L based on position direction
             if signal_type == "BUY":
-                pnl = (current_price - entry) * LOT_SIZE * st.session_state.position['Lots']
+                # Ensure both values are not None and are numeric
+                if current_price is not None and entry is not None:
+                    pnl = (current_price - entry) * LOT_SIZE * st.session_state.position['Lots']
+                else:
+                    pnl = 0  # Default to 0 if we can't calculate
+                    
                 exit_reason = None
-                if current_price <= st.session_state.position['SL']:
+                if current_price is not None and st.session_state.position['SL'] is not None and current_price <= st.session_state.position['SL']:
                     exit_reason = "🛑 STOP LOSS"
-                elif current_price >= st.session_state.position['TP']:
+                elif current_price is not None and st.session_state.position['TP'] is not None and current_price >= st.session_state.position['TP']:
                     exit_reason = "✅ TARGET HIT"
             else:  # SELL position
-                pnl = (entry - current_price) * LOT_SIZE * st.session_state.position['Lots']
+                # Ensure both values are not None and are numeric
+                if current_price is not None and entry is not None:
+                    pnl = (entry - current_price) * LOT_SIZE * st.session_state.position['Lots']
+                else:
+                    pnl = 0  # Default to 0 if we can't calculate
+                    
                 exit_reason = None
-                if current_price >= st.session_state.position['SL']:
+                if current_price is not None and st.session_state.position['SL'] is not None and current_price >= st.session_state.position['SL']:
                     exit_reason = "🛑 STOP LOSS"
-                elif current_price <= st.session_state.position['TP']:
+                elif current_price is not None and st.session_state.position['TP'] is not None and current_price <= st.session_state.position['TP']:
                     exit_reason = "✅ TARGET HIT"
             
             # Position monitoring
@@ -395,13 +564,16 @@ try:
             
             with col1:
                 st.metric("Current Price", f"₹{current_price:.2f}", 
-                        delta=f"{current_price - entry:.2f}")
+                        delta=f"{current_price - entry:.2f}" if current_price is not None and entry is not None else None)
             with col2:
-                pnl_formatted = f"₹{pnl:.2f}"
+                pnl_formatted = f"₹{pnl:.2f}" if pnl is not None else "₹0.00"
                 st.metric("Current P&L", pnl_formatted)
             with col3:
-                st.metric("Target Distance", 
-                        f"{abs(current_price - st.session_state.position['TP']):.2f}")
+                if current_price is not None and st.session_state.position['TP'] is not None:
+                    target_distance = abs(current_price - st.session_state.position['TP'])
+                    st.metric("Target Distance", f"{target_distance:.2f}")
+                else:
+                    st.metric("Target Distance", "N/A")
             
             # Manual exit button
             if st.button("Close Position"):
@@ -527,5 +699,18 @@ try:
     st.session_state.last_update = datetime.datetime.now()
     st.caption(f"Last updated: {st.session_state.last_update.strftime('%H:%M:%S')}")
 
+except TypeError as e:
+    if "NoneType" in str(e):
+        st.error(f"Data error: A value is missing where a number was expected. Error: {e}")
+        st.info("Try resetting the demo data or restarting the app.")
+        
+        # Add a reset button to help the user recover
+        if st.button("Reset Application State"):
+            for key in list(st.session_state.keys()):
+                if key.startswith("demo_"):
+                    del st.session_state[key]
+            st.experimental_rerun()
+    else:
+        st.error(f"Type error: {e}")
 except Exception as e:
     st.error(f"An error occurred: {str(e)}")
