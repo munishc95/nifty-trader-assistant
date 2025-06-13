@@ -9,6 +9,7 @@ import os
 import time
 from dotenv import load_dotenv
 from upstox_manager import UpstoxDataManager
+from signal_engine import SignalEngine
 
 # Load environment variables
 load_dotenv()
@@ -435,18 +436,26 @@ try:
         st.error("❌ No market data available. Check connection or wait for market to open.")
         st.stop()
     
-    # Apply strategy with user-defined parameters
+    # Apply indicators for charting
     df = apply_strategy(
-        df, 
-        ema_short=ema_short, 
-        ema_long=ema_long, 
+        df,
+        ema_short=ema_short,
+        ema_long=ema_long,
         rsi_period=rsi_period,
         rsi_threshold=rsi_threshold
     )
-    
+
+    # Generate real-time trading signal
+    engine = SignalEngine(
+        ema_short=ema_short,
+        ema_long=ema_long,
+        rsi_period=rsi_period,
+        rsi_threshold=rsi_threshold,
+    )
+    signal = engine.compute_signal(df)
+
     # Get latest data points
     latest = df.iloc[-1]
-    signal = int(latest['Signal']) if 'Signal' in latest else 0
     ltp = float(latest['Close'])
     
     # Handle ATR for risk management
@@ -466,7 +475,7 @@ try:
         st.metric("NIFTY Current Price", f"₹{ltp:.2f}")
     with col2:
         signal_text = "🟢 BUY" if signal == 1 else "🔴 SELL" if signal == -1 else "⚪ HOLD"
-        st.metric("Signal", signal_text)
+        st.metric("Real-Time Signal", signal_text)
     with col3:
         st.metric("Available Capital", f"₹{st.session_state.capital:,.2f}")
     
