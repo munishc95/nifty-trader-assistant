@@ -4,12 +4,13 @@ A powerful assistant tool for traders to analyze markets, track investments, and
 
 ## Overview
 
-Nifty Trader Assistant helps traders streamline their workflow with automated analysis, real-time notifications, and portfolio management features.
+Nifty Trader Assistant helps traders streamline their workflow with automated analysis, real-time notifications, a cleaner user interface, and portfolio management features.
 
 ## Features
 
 - Market data analysis
 - Trading signal detection
+- Real-time signal engine
 - Portfolio performance tracking
 - Risk assessment tools
 - Customizable alerts
