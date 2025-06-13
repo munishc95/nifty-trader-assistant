@@ -227,7 +227,10 @@ def apply_strategy(df, ema_short=5, ema_long=20, rsi_period=14, rsi_threshold=50
     # Skip if dataframe is empty or has insufficient data
     if df.empty or len(df) < ema_long + 1:
         return df
-    
+
+    # Work on a copy to avoid SettingWithCopyWarning when assigning columns
+    df = df.copy()
+
     # Calculate EMAs
     df['EMA_SHORT'] = df['Close'].ewm(span=ema_short, adjust=False).mean()
     df['EMA_LONG'] = df['Close'].ewm(span=ema_long, adjust=False).mean()
