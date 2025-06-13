@@ -8,6 +8,7 @@ import upstox_client
 from datetime import datetime, timedelta
 import pytz
 import logging
+import requests
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,11 +29,20 @@ class UpstoxDataManager:
                 self.configuration = upstox_client.Configuration()
                 self.configuration.access_token = self.access_token
                 self.api_client = upstox_client.ApiClient(self.configuration)
-                
+
             except Exception as e:
                 logger.error(f"Failed to initialize Upstox client: {e}")
                 logger.warning("Falling back to simulation mode")
                 self.fallback_mode = True
+
+        # Validate token when client is available
+        self.token_valid = True
+        if not self.fallback_mode:
+            self.token_valid = self._validate_token()
+            if not self.token_valid:
+                logger.error("Upstox token validation failed. Switching to fallback mode.")
+                self.fallback_mode = True
+                self.connection_failed = True
         
         # Data storage
         self.current_data = {}
@@ -50,8 +60,31 @@ class UpstoxDataManager:
             "Nifty 50": [],
             "Nifty Bank": []
         }
-        
+
         logger.info(f"UpstoxDataManager initialized in {'fallback' if self.fallback_mode else 'live'} mode")
+
+    def _validate_token(self) -> bool:
+        """Check if the provided Upstox token can access the API"""
+        try:
+            headers = {
+                "Accept": "application/json",
+                "Authorization": f"Bearer {self.access_token}",
+            }
+            resp = requests.get(
+                "https://api.upstox.com/v2/user/profile",
+                headers=headers,
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                logger.info("Upstox token validated successfully")
+                return True
+            logger.error(
+                f"Token validation failed: {resp.status_code} {resp.text}"
+            )
+            return False
+        except Exception as e:
+            logger.error(f"Token validation error: {e}")
+            return False
     
     def start_streaming(self):
         """Start the data streaming in a background thread"""
