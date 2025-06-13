@@ -182,12 +182,15 @@ st.title("🔴 NIFTY Live Trading Assistant")
 # Add this after your title
 col1, col2, col3 = st.columns(3)
 with col1:
-    if st.session_state.upstox_manager:
-        if hasattr(st.session_state.upstox_manager, 'fallback_mode') and st.session_state.upstox_manager.fallback_mode:
+    um = st.session_state.upstox_manager if 'upstox_manager' in st.session_state else None
+    if um:
+        if hasattr(um, 'token_valid') and not um.token_valid:
+            st.error("❌ Invalid Upstox Token")
+        elif hasattr(um, 'fallback_mode') and um.fallback_mode:
             st.warning("🔄 Using Simulated Data")
-        elif hasattr(st.session_state.upstox_manager, 'connection_failed') and st.session_state.upstox_manager.connection_failed:
+        elif hasattr(um, 'connection_failed') and um.connection_failed:
             st.error("❌ Upstox Connection Failed")
-        elif hasattr(st.session_state.upstox_manager, 'running') and st.session_state.upstox_manager.running:
+        elif hasattr(um, 'running') and um.running:
             st.success("✅ Upstox Connected")
         else:
             st.error("❌ Upstox Disconnected")
